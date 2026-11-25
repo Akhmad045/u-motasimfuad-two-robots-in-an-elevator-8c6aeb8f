@@ -1,86 +1,105 @@
 #!/usr/bin/env python3
 """Two Robots in an Elevator — a make.fun entry.
 
-Writes the one line of awkward small talk one robot says to another
-while riding an elevator together to /output/entry.txt.
-Stdlib only, no network, no secrets.
+One robot rides an elevator with another robot. The other robot's
+indicator light has been blinking for three floors now, and the first
+robot finally says something about it. This program writes that one
+line to /output/entry.txt so the judge can read it.
+
+Stdlib only. No network, no secrets, no reading from anywhere else.
 """
 
-import argparse
-from pathlib import Path
+import sys
 
 LINE = "Your indicator light has been blinking for three floors. Either you're flirting or your battery is dying, and I'm not sure which is worse."
-# 138 characters / 138 bytes — inside the 62–195 byte winning band for
-# one-liner sprints, and under the 200-character gate.
-MAX_CHARS = 200
+LIMIT = 200
+DEFAULT_OUT = "/output/entry.txt"
 
 
-def validate(text: str) -> list:
-    """Return the gate failures for `text` (empty list means valid)."""
-    problems = []
-    if not text:
-        problems.append("entry is empty")
+def gate_problems(text):
+    """List every way `text` breaks the gate; empty means it passes."""
+    bad = []
+    if text == "":
+        bad.append("empty line")
+    if text.strip() == "":
+        bad.append("only whitespace")
     if text != text.strip():
-        problems.append("entry has leading or trailing whitespace")
-    if not text.strip():
-        problems.append("entry is only whitespace")
-    if len(text) > MAX_CHARS:
-        problems.append("entry is %d characters, over the %d cap" % (len(text), MAX_CHARS))
-    if "\n" in text or "\r" in text:
-        problems.append("entry is not a single line")
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
-        problems.append("entry contains a control character")
-    return problems
+        bad.append("leading or trailing whitespace")
+    if len(text) > LIMIT:
+        bad.append("too long: %d characters, cap is %d" % (len(text), LIMIT))
+    for ch in text:
+        code = ord(ch)
+        if ch == "\n" or ch == "\r" or code < 32 or code == 127:
+            bad.append("not one clean line")
+            break
+    return bad
 
 
-def write_entry(out_path: Path) -> None:
-    problems = validate(LINE)
-    if problems:
-        raise SystemExit("invalid entry: " + "; ".join(problems))
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(LINE, encoding="utf-8")
+def write_line(path):
+    """Validate the line, then write it exactly as-is, no newline added."""
+    bad = gate_problems(LINE)
+    if bad:
+        print("entry rejected: " + "; ".join(bad), file=sys.stderr)
+        return 1
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(LINE)
+    return 0
 
 
-def self_test() -> int:
+def run_checks():
+    """Check the gate against the entry and a spread of edge cases."""
     cases = [
         (LINE, True),
         ("x", True),
-        ("a" * 200, True),
+        ("a" * LIMIT, True),
         ("", False),
         ("   ", False),
-        ("a" * 201, False),
+        ("a" * (LIMIT + 1), False),
         ("one\ntwo", False),
         ("one\rtwo", False),
         (" lead", False),
         ("trail ", False),
         ("tab\there", False),
     ]
-    failures = 0
-    for text, should_pass in cases:
-        ok = not validate(text)
-        if ok != should_pass:
-            failures += 1
-            print("FAIL: %r expected %s" % (text[:30], "valid" if should_pass else "invalid"))
-    if failures:
-        print("self-test: %d failure(s)" % failures)
-        return 1
-    print("self-test: all %d cases passed; entry is %d chars" % (len(cases), len(LINE)))
-    return 0
+    failed = 0
+    for text, expected in cases:
+        passed = gate_problems(text) == []
+        if passed != expected:
+            failed += 1
+            shown = text[:30].replace("\n", "\\n").replace("\t", "\\t")
+            print("FAIL %r: expected %s" % (shown, "pass" if expected else "fail"))
+    total = len(cases)
+    print("self-test: %d of %d cases passed; entry is %d chars, %d bytes"
+          % (total - failed, total, len(LINE), len(LINE.encode("utf-8"))))
+    return 1 if failed else 0
 
 
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Write the robot elevator line to entry.txt.")
-    parser.add_argument("--out", default="/output/entry.txt",
-                        help="output path (default: /output/entry.txt)")
-    parser.add_argument("--self-test", action="store_true",
-                        help="validate the entry and the gate checks")
-    args = parser.parse_args(argv)
-    if args.self_test:
-        return self_test()
-    write_entry(Path(args.out))
-    return 0
+def usage():
+    print("usage: main.py [--out PATH] [--self-test]")
+    print("  --out PATH    where to write entry.txt (default %s)" % DEFAULT_OUT)
+    print("  --self-test   check the line against the gate instead of writing")
+    return 2
+
+
+def main(argv):
+    out = DEFAULT_OUT
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--self-test":
+            return run_checks()
+        if arg == "--out" and i + 1 < len(argv):
+            out = argv[i + 1]
+            i += 2
+            continue
+        if arg.startswith("--out="):
+            out = arg[len("--out="):]
+            i += 1
+            continue
+        print("unknown argument: %s" % arg, file=sys.stderr)
+        return usage()
+    return write_line(out)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main(sys.argv[1:]))
